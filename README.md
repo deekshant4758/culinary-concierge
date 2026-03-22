@@ -2,8 +2,8 @@
 
 A full-stack enterprise food ordering web application built for the **Slooze SDE Take Home Assignment**. Features role-based access control (RBAC), regional data isolation (Re-BAC), a GraphQL API powered by Apollo Server, Prisma ORM, and a Next.js frontend.
 
-**Live Demo:** [culinary-concierge.vercel.app](https://culinary-concierge.vercel.app)  
-**GraphQL Playground:** `<your-vercel-url>/api/graphql`  
+**Live Demo:** [culinary-concierge-xi.vercel.app](https://culinary-concierge-xi.vercel.app/)  
+**GraphQL Playground:** `https://culinary-concierge-xi.vercel.app/api/graphql`  
 **Repository:** [github.com/deekshant4758/culinary-concierge](https://github.com/deekshant4758/culinary-concierge)
 
 ---
