@@ -1,0 +1,137 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        Int      @id @default(autoincrement())
+  name      String   @db.VarChar(100)
+  email     String   @unique @db.VarChar(150)
+  password  String   @db.VarChar(255)
+  role      Role     @default(member)
+  region    Region   @default(india)
+  createdAt DateTime @default(now()) @map("created_at")
+  orders    Order[]
+
+  @@map("users")
+}
+
+model Restaurant {
+  id          Int         @id @default(autoincrement())
+  name        String      @db.VarChar(200)
+  description String?     @db.Text
+  cuisine     String?     @db.VarChar(100)
+  region      RestRegion
+  city        String?     @db.VarChar(100)
+  rating      Decimal     @default(4.0) @db.Decimal(2, 1)
+  imageUrl    String?     @db.VarChar(500) @map("image_url")
+  isActive    Boolean     @default(true) @map("is_active")
+  createdAt   DateTime    @default(now()) @map("created_at")
+  menuItems   MenuItem[]
+  orders      Order[]
+
+  @@map("restaurants")
+}
+
+model MenuItem {
+  id           Int         @id @default(autoincrement())
+  restaurantId Int         @map("restaurant_id")
+  name         String      @db.VarChar(200)
+  description  String?     @db.Text
+  price        Decimal     @db.Decimal(10, 2)
+  category     String?     @db.VarChar(100)
+  isVegetarian Boolean     @default(false) @map("is_vegetarian")
+  isAvailable  Boolean     @default(true) @map("is_available")
+  imageUrl     String?     @db.VarChar(500) @map("image_url")
+  createdAt    DateTime    @default(now()) @map("created_at")
+  restaurant   Restaurant  @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  orderItems   OrderItem[]
+
+  @@map("menu_items")
+}
+
+model PaymentMethod {
+  id              Int      @id @default(autoincrement())
+  label           String   @db.VarChar(150)
+  type            PayType  @default(card)
+  lastFour        String?  @db.VarChar(4) @map("last_four")
+  cardholderName  String?  @db.VarChar(150) @map("cardholder_name")
+  expiry          String?  @db.VarChar(7)
+  region          Region   @default(global)
+  isPrimary       Boolean  @default(false) @map("is_primary")
+  isActive        Boolean  @default(true) @map("is_active")
+  createdAt       DateTime @default(now()) @map("created_at")
+  orders          Order[]
+
+  @@map("payment_methods")
+}
+
+model Order {
+  id              Int           @id @default(autoincrement())
+  userId          Int           @map("user_id")
+  restaurantId    Int           @map("restaurant_id")
+  paymentMethodId Int?          @map("payment_method_id")
+  status          OrderStatus   @default(draft)
+  totalAmount     Decimal       @default(0.00) @map("total_amount") @db.Decimal(10, 2)
+  region          RestRegion
+  notes           String?       @db.Text
+  placedAt        DateTime?     @map("placed_at")
+  createdAt       DateTime      @default(now()) @map("created_at")
+  updatedAt       DateTime      @updatedAt @map("updated_at")
+  user            User          @relation(fields: [userId], references: [id])
+  restaurant      Restaurant    @relation(fields: [restaurantId], references: [id])
+  paymentMethod   PaymentMethod? @relation(fields: [paymentMethodId], references: [id])
+  items           OrderItem[]
+
+  @@map("orders")
+}
+
+model OrderItem {
+  id         Int      @id @default(autoincrement())
+  orderId    Int      @map("order_id")
+  menuItemId Int      @map("menu_item_id")
+  quantity   Int      @default(1)
+  unitPrice  Decimal  @map("unit_price") @db.Decimal(10, 2)
+  subtotal   Decimal  @db.Decimal(10, 2)
+  createdAt  DateTime @default(now()) @map("created_at")
+  order      Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  menuItem   MenuItem @relation(fields: [menuItemId], references: [id])
+
+  @@map("order_items")
+}
+
+enum Role {
+  admin
+  manager
+  member
+}
+
+enum Region {
+  india
+  america
+  global
+}
+
+enum RestRegion {
+  india
+  america
+}
+
+enum OrderStatus {
+  draft
+  placed
+  processing
+  delivering
+  delivered
+  cancelled
+}
+
+enum PayType {
+  card
+  bank
+  upi
+}
