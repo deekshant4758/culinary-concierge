@@ -4,6 +4,7 @@ import Link from 'next/link';
 import Layout from '../components/Layout';
 import { getUserFromRequest } from '../lib/auth';
 import { prisma } from '../lib/prisma';
+import { calculateOrderTotal } from '../lib/pricing';
 
 export default function Dashboard({ user, stats, recentOrders }) {
   return (
@@ -125,31 +126,44 @@ export async function getServerSideProps({ req }) {
 
   const orderWhere = user.role === 'admin' ? {}
     : user.role === 'manager' ? { region: user.region }
-    : { userId: user.id };
+    : { 
+        OR: [
+          { userId: user.id },
+          { collaborators: { some: { userId: user.id } } }
+        ]
+      };
 
   const rWhere = user.role === 'admin' ? { isActive: true } : { isActive: true, region: user.region };
 
-  const [totalOrders, activeOrders, restaurants, spent, recentOrders] = await Promise.all([
+  const [totalOrders, activeOrders, restaurants, spendOrders, recentOrders] = await Promise.all([
     prisma.order.count({ where: orderWhere }),
     prisma.order.count({ where: { ...orderWhere, status: { in: ['placed', 'processing', 'delivering'] } } }),
     prisma.restaurant.count({ where: rWhere }),
-    prisma.order.aggregate({ where: { ...orderWhere, status: { not: 'cancelled' } }, _sum: { totalAmount: true } }),
+    prisma.order.findMany({
+      where: { ...orderWhere, status: { not: 'cancelled' } },
+      include: { items: true },
+    }),
     prisma.order.findMany({
       where: orderWhere,
-      include: { restaurant: true },
+      include: { restaurant: true, items: true },
       orderBy: { createdAt: 'desc' },
       take: 5,
     }),
   ]);
 
   const currency = user.region === 'america' ? '$' : '₹';
-  const totalSpent = parseFloat(spent._sum.totalAmount?.toString() || '0').toFixed(2);
+  const totalSpent = spendOrders.reduce((sum, order) => {
+    const subtotal = order.items.reduce((itemSum, item) => itemSum + parseFloat(item.subtotal.toString()), 0);
+    return sum + calculateOrderTotal(subtotal);
+  }, 0).toFixed(2);
 
   const serialized = recentOrders.map(o => ({
     id: o.id,
     status: o.status,
     region: o.region,
-    totalAmount: parseFloat(o.totalAmount.toString()),
+    totalAmount: calculateOrderTotal(
+      o.items.reduce((sum, item) => sum + parseFloat(item.subtotal.toString()), 0)
+    ),
     createdAt: o.createdAt.toISOString(),
     restaurantName: o.restaurant.name,
   }));

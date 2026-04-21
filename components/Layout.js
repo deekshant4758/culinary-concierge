@@ -130,7 +130,7 @@ export default function Layout({ children, user }) {
         </main>
 
         <footer className="border-t border-outline-variant/20 py-4 px-8 text-center text-xs text-outline">
-          © 2026 Culinary Concierge Corp. All rights reserved.
+          © 2024 Culinary Concierge Corp. All rights reserved.
         </footer>
       </div>
     </div>

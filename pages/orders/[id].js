@@ -1,10 +1,12 @@
 // pages/orders/[id].js
 import { useState } from 'react';
 import Head from 'next/head';
+import Link from 'next/link';
 import { useRouter } from 'next/router';
 import Layout from '../../components/Layout';
 import { getUserFromRequest, canPerform } from '../../lib/auth';
 import { prisma } from '../../lib/prisma';
+import { calculateTax, calculateOrderTotal } from '../../lib/pricing';
 
 const STATUS_COLORS = {
   draft: 'bg-gray-100 text-gray-700', placed: 'bg-blue-100 text-blue-700',
@@ -25,17 +27,21 @@ async function gql(query, variables = {}) {
   return json.data;
 }
 
-export default function OrderDetail({ user, order, orderItems, paymentMethods }) {
+export default function OrderDetail({ user, order, orderItems, paymentMethods, eligibleCollaborators, canManageShare, canEditSharedCart }) {
   const router = useRouter();
   const [selectedPayment, setSelectedPayment] = useState(order.paymentMethodId || '');
   const [loading, setLoading]   = useState(false);
   const [error, setError]       = useState('');
+  const [selectedCollaborator, setSelectedCollaborator] = useState('');
+  const [shareLoading, setShareLoading] = useState(false);
+  const [shareError, setShareError] = useState('');
 
   const canPlace  = canPerform(user, 'place_order');
   const canCancel = canPerform(user, 'cancel_order');
   const currency  = order.region === 'india' ? '₹' : '$';
   const stepIndex = STATUS_STEPS.indexOf(order.status);
   const cancellable = ['draft', 'placed', 'processing'].includes(order.status);
+  const taxAmount = calculateTax(order.subtotalAmount);
 
   const handlePlaceOrder = async () => {
     if (!selectedPayment) { setError('Please select a payment method.'); return; }
@@ -58,6 +64,52 @@ export default function OrderDetail({ user, order, orderItems, paymentMethods })
       router.replace(router.asPath);
     } catch (err) { setError(err.message); }
     finally { setLoading(false); }
+  };
+
+  const handleShareDraft = async () => {
+    if (!selectedCollaborator) {
+      setShareError('Select a user to invite.');
+      return;
+    }
+
+    setShareLoading(true);
+    setShareError('');
+    try {
+      await gql(
+        `
+          mutation ShareDraft($id: Int!, $userId: Int!) {
+            shareDraftOrder(id: $id, userId: $userId) { id }
+          }
+        `,
+        { id: order.id, userId: parseInt(selectedCollaborator, 10) }
+      );
+      setSelectedCollaborator('');
+      router.replace(router.asPath);
+    } catch (err) {
+      setShareError(err.message);
+    } finally {
+      setShareLoading(false);
+    }
+  };
+
+  const handleRemoveSharedUser = async (collaboratorId) => {
+    setShareLoading(true);
+    setShareError('');
+    try {
+      await gql(
+        `
+          mutation RemoveShare($id: Int!, $userId: Int!) {
+            removeCollaborator(id: $id, userId: $userId) { id }
+          }
+        `,
+        { id: order.id, userId: collaboratorId }
+      );
+      router.replace(router.asPath);
+    } catch (err) {
+      setShareError(err.message);
+    } finally {
+      setShareLoading(false);
+    }
   };
 
   return (
@@ -129,7 +181,11 @@ export default function OrderDetail({ user, order, orderItems, paymentMethods })
               <div className="p-5 bg-surface-container-low space-y-2">
                 <div className="flex justify-between text-sm">
                   <span className="text-on-surface-variant">Subtotal</span>
-                  <span className="font-bold">{currency}{order.totalAmount.toFixed(2)}</span>
+                  <span className="font-bold">{currency}{order.subtotalAmount.toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-on-surface-variant">Tax (5%)</span>
+                  <span className="font-bold">{currency}{taxAmount.toFixed(2)}</span>
                 </div>
                 <div className="flex justify-between font-bold text-base border-t border-surface-container pt-2">
                   <span>Total</span>
@@ -139,6 +195,101 @@ export default function OrderDetail({ user, order, orderItems, paymentMethods })
             </div>
 
             <div className="space-y-4">
+              {order.status === 'draft' && (
+                <div className="card space-y-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <h2 className="font-headline font-bold">Shared Cart</h2>
+                      <p className="text-xs text-outline mt-1">
+                        Invite one same-region teammate or any admin to collaborate on this draft.
+                      </p>
+                    </div>
+                  </div>
+
+                  {canEditSharedCart && (
+                    <div className="rounded-xl border border-blue-100 bg-blue-50 p-3 flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-bold text-blue-900">You can edit this draft</p>
+                      </div>
+                      <Link
+                        href={`/restaurants/${order.restaurantId}`}
+                        className="shrink-0 inline-flex items-center gap-1 text-xs font-bold text-blue-700 hover:text-blue-900 hover:underline"
+                      >
+                        Edit Draft
+                        <span className="material-symbols-outlined text-sm">arrow_forward</span>
+                      </Link>
+                    </div>
+                  )}
+
+                  <div className="text-sm">
+                    <p className="text-on-surface-variant">Owner</p>
+                    <p className="font-medium">{order.userName}</p>
+                  </div>
+
+                  <div className="text-sm">
+                    <p className="text-on-surface-variant">Collaborators</p>
+                    <p className="font-medium">
+                      {order.collaboratorNames && order.collaboratorNames.length > 0
+                        ? order.collaboratorNames.join(', ')
+                        : 'None invited yet'}
+                    </p>
+                  </div>
+
+                  {canManageShare && (
+                    <div className="space-y-2">
+                      <label className="text-xs text-outline uppercase tracking-widest font-bold">Invite User</label>
+                      <select
+                        value={selectedCollaborator}
+                        onChange={(e) => setSelectedCollaborator(e.target.value)}
+                        className="input"
+                      >
+                        <option value="">Select a collaborator</option>
+                        {eligibleCollaborators.map((candidate) => (
+                          <option key={candidate.id} value={candidate.id}>
+                            {candidate.name} ({candidate.role} - {candidate.region})
+                          </option>
+                        ))}
+                      </select>
+                      {shareError && <p className="text-xs text-red-600 bg-red-50 p-2 rounded-lg">{shareError}</p>}
+                      <div className="flex gap-2">
+                        <button
+                          onClick={handleShareDraft}
+                          disabled={shareLoading || !selectedCollaborator}
+                          className="btn-primary flex-1 text-sm disabled:opacity-60"
+                        >
+                          {shareLoading ? 'Adding...' : 'Add Collaborator'}
+                        </button>
+                      </div>
+                      {order.collaborators?.length > 0 && (
+                        <div className="space-y-2 pt-2">
+                          {order.collaborators.map((collaborator) => (
+                            <div key={collaborator.id} className="flex items-center justify-between gap-3 rounded-xl border border-surface-container-high px-3 py-2 text-sm">
+                              <div>
+                                <p className="font-medium text-on-surface">{collaborator.name}</p>
+                                <p className="text-xs text-outline capitalize">{collaborator.role} · {collaborator.region}</p>
+                              </div>
+                              <button
+                                onClick={() => handleRemoveSharedUser(collaborator.id)}
+                                disabled={shareLoading}
+                                className="text-xs font-semibold text-red-600 hover:underline disabled:opacity-60"
+                              >
+                                Remove
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {!canManageShare && canEditSharedCart && (
+                    <p className="text-xs text-blue-700 bg-blue-50 border border-blue-100 rounded-lg p-3">
+                      This draft was shared with you. Your changes in the restaurant cart will sync for both of you.
+                    </p>
+                  )}
+                </div>
+              )}
+
               <div className="card">
                 <h2 className="font-headline font-bold mb-4">Payment</h2>
                 {order.status === 'draft' && canPlace ? (
@@ -212,6 +363,7 @@ export async function getServerSideProps({ req, params }) {
     include: {
       restaurant: true,
       user: true,
+      collaborators: { include: { user: true } },
       paymentMethod: true,
       items: { include: { menuItem: true } },
     },
@@ -219,10 +371,21 @@ export async function getServerSideProps({ req, params }) {
 
   if (!order) return { notFound: true };
 
-  if (user.role === 'member'  && order.userId !== user.id)     return { redirect: { destination: '/orders', permanent: false } };
-  if (user.role === 'manager' && order.region !== user.region) return { redirect: { destination: '/orders', permanent: false } };
+  const canViewOrder = user.role === 'admin'
+    || order.userId === user.id
+    || order.collaborators?.some((c) => c.userId === user.id)
+    || (user.role === 'manager' && order.region === user.region);
+  if (!canViewOrder) return { redirect: { destination: '/orders', permanent: false } };
 
   const paymentMethods = await prisma.paymentMethod.findMany({ where: { isActive: true } });
+  const eligibleCollaborators = await prisma.user.findMany({
+    where: {
+      id: { not: order.userId },
+      OR: [{ role: 'admin' }, { region: order.region }],
+    },
+    orderBy: [{ role: 'asc' }, { name: 'asc' }],
+  });
+  const subtotalAmount = order.items.reduce((sum, item) => sum + parseFloat(item.subtotal.toString()), 0);
 
   const s = (v) => v instanceof Date ? v.toISOString()
     : v?.constructor?.name === 'Decimal' ? parseFloat(v.toString()) : v;
@@ -232,11 +395,14 @@ export async function getServerSideProps({ req, params }) {
       user,
       order: {
         id: order.id, status: order.status, region: order.region,
-        totalAmount: parseFloat(order.totalAmount.toString()),
+        restaurantId: order.restaurantId,
+        subtotalAmount,
+        totalAmount: calculateOrderTotal(subtotalAmount),
         createdAt: order.createdAt.toISOString(),
         placedAt: order.placedAt?.toISOString() || null,
         restaurantName: order.restaurant.name,
         userName: order.user.name,
+        collaboratorNames: order.collaborators?.map((c) => c.user?.name).filter(Boolean) || [],
         paymentMethodId: order.paymentMethodId,
         paymentLabel: order.paymentMethod?.label || null,
         paymentLastFour: order.paymentMethod?.lastFour || null,
@@ -251,6 +417,16 @@ export async function getServerSideProps({ req, params }) {
         id: pm.id, label: pm.label, type: pm.type,
         lastFour: pm.lastFour, isPrimary: pm.isPrimary,
       })),
+      eligibleCollaborators: eligibleCollaborators.map((candidate) => ({
+        id: candidate.id,
+        name: candidate.name,
+        role: candidate.role,
+        region: candidate.region,
+      })),
+      canManageShare: user.role === 'admin' || order.userId === user.id,
+      canEditSharedCart: user.role === 'admin'
+        || order.userId === user.id
+        || order.collaborators?.some((c) => c.userId === user.id),
     },
   };
 }

@@ -6,26 +6,27 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "db:migrate": "npx prisma migrate dev --name init",
-    "db:push": "npx prisma db push",
     "db:seed": "node scripts/seed.js",
-    "db:studio": "npx prisma studio",
-    "postinstall": "prisma generate"
+    "db:migrate": "node scripts/migrate.js"
   },
   "dependencies": {
-    "next": "14.2.5",
-    "react": "^18",
-    "react-dom": "^18",
-    "@apollo/server": "^4.10.4",
-    "@as-integrations/next": "^3.1.0",
-    "graphql": "^16.8.2",
-    "@prisma/client": "^5.14.0",
+    "@apollo/server": "^5.5.0",
+    "@as-integrations/next": "^4.1.0",
+    "@prisma/client": "^5.22.0",
     "bcryptjs": "^2.4.3",
+    "cookie": "^0.6.0",
+    "dotenv": "^17.3.1",
+    "graphql": "^16.13.2",
+    "graphql-tag": "^2.12.6",
     "jsonwebtoken": "^9.0.2",
-    "cookie": "^0.6.0"
+    "mysql2": "^3.9.7",
+    "next": "14.2.5",
+    "pg": "^8.20.0",
+    "prisma": "^5.22.0",
+    "react": "^18",
+    "react-dom": "^18"
   },
   "devDependencies": {
-    "prisma": "^5.14.0",
     "autoprefixer": "^10.0.1",
     "postcss": "^8",
     "tailwindcss": "^3.4.1"

@@ -4,6 +4,7 @@ import Link from 'next/link';
 import Layout from '../../components/Layout';
 import { getUserFromRequest, canPerform } from '../../lib/auth';
 import { prisma } from '../../lib/prisma';
+import { calculateOrderTotal } from '../../lib/pricing';
 
 const STATUS_COLORS = {
   draft: 'bg-gray-100 text-gray-700', placed: 'bg-blue-100 text-blue-700',
@@ -113,17 +114,19 @@ export async function getServerSideProps({ req }) {
 
   const where = user.role === 'admin' ? {}
     : user.role === 'manager' ? { region: user.region }
-    : { userId: user.id };
+    : { OR: [{ userId: user.id }, { collaborators: { some: { userId: user.id } } }] };
 
   const orders = await prisma.order.findMany({
     where,
-    include: { restaurant: true, user: true },
+    include: { restaurant: true, user: true, items: true },
     orderBy: { createdAt: 'desc' },
   });
 
   const serialized = orders.map(o => ({
     id: o.id, status: o.status, region: o.region,
-    totalAmount: parseFloat(o.totalAmount.toString()),
+    totalAmount: calculateOrderTotal(
+      o.items.reduce((sum, item) => sum + parseFloat(item.subtotal.toString()), 0)
+    ),
     createdAt: o.createdAt.toISOString(),
     restaurantName: o.restaurant.name,
     userName: o.user.name,

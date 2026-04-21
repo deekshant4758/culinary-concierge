@@ -8,14 +8,15 @@ datasource db {
 }
 
 model User {
-  id        Int      @id @default(autoincrement())
-  name      String   @db.VarChar(100)
-  email     String   @unique @db.VarChar(150)
-  password  String   @db.VarChar(255)
-  role      Role     @default(member)
-  region    Region   @default(india)
-  createdAt DateTime @default(now()) @map("created_at")
-  orders    Order[]
+  id           Int                    @id @default(autoincrement())
+  name         String                 @db.VarChar(100)
+  email        String                 @unique @db.VarChar(150)
+  password     String                 @db.VarChar(255)
+  role         Role                   @default(member)
+  region       Region                 @default(india)
+  createdAt    DateTime               @default(now()) @map("created_at")
+  orders       Order[]                @relation("OrderOwner")
+  collaborations OrderCollaborator[]   @relation("collaborations")
 
   @@map("users")
 }
@@ -71,23 +72,36 @@ model PaymentMethod {
 }
 
 model Order {
-  id              Int           @id @default(autoincrement())
-  userId          Int           @map("user_id")
-  restaurantId    Int           @map("restaurant_id")
-  paymentMethodId Int?          @map("payment_method_id")
-  status          OrderStatus   @default(draft)
-  totalAmount     Decimal       @default(0.00) @map("total_amount") @db.Decimal(10, 2)
-  region          RestRegion
-  notes           String?       @db.Text
-  placedAt        DateTime?     @map("placed_at")
-  createdAt       DateTime      @default(now()) @map("created_at")
-  updatedAt       DateTime      @updatedAt @map("updated_at")
-  user            User          @relation(fields: [userId], references: [id])
-  restaurant      Restaurant    @relation(fields: [restaurantId], references: [id])
-  paymentMethod   PaymentMethod? @relation(fields: [paymentMethodId], references: [id])
-  items           OrderItem[]
+  id               Int                    @id @default(autoincrement())
+  userId           Int                    @map("user_id")
+  restaurantId     Int                    @map("restaurant_id")
+  paymentMethodId  Int?                   @map("payment_method_id")
+  status           OrderStatus            @default(draft)
+  totalAmount      Decimal                @default(0.00) @map("total_amount") @db.Decimal(10, 2)
+  region           RestRegion
+  notes            String?                @db.Text
+  placedAt         DateTime?              @map("placed_at")
+  createdAt        DateTime               @default(now()) @map("created_at")
+  updatedAt        DateTime               @updatedAt @map("updated_at")
+  user             User                   @relation("OrderOwner", fields: [userId], references: [id])
+  restaurant       Restaurant             @relation(fields: [restaurantId], references: [id])
+  paymentMethod    PaymentMethod?         @relation(fields: [paymentMethodId], references: [id])
+  items            OrderItem[]
+  collaborators    OrderCollaborator[]
 
   @@map("orders")
+}
+
+model OrderCollaborator {
+  id        Int      @id @default(autoincrement())
+  orderId   Int      @map("order_id")
+  userId    Int      @map("user_id")
+  createdAt DateTime @default(now()) @map("created_at")
+  order     Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  user      User     @relation("collaborations", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([orderId, userId])
+  @@map("order_collaborators")
 }
 
 model OrderItem {

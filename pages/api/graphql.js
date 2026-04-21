@@ -1,7 +1,7 @@
 // pages/api/graphql.js
+// Single GraphQL endpoint — replaces all individual REST API routes
 import { ApolloServer } from '@apollo/server';
 import { startServerAndCreateNextHandler } from '@as-integrations/next';
-import { ApolloServerPluginLandingPageLocalDefault } from '@apollo/server/plugin/landingPage/default';
 import { typeDefs } from '../../lib/graphql/schema.js';
 import { resolvers } from '../../lib/graphql/resolvers.js';
 import { getUserFromRequest } from '../../lib/auth.js';
@@ -9,25 +9,16 @@ import { getUserFromRequest } from '../../lib/auth.js';
 const server = new ApolloServer({
   typeDefs,
   resolvers,
-  introspection: true,
+  // Show stack traces in dev only
   includeStacktraceInErrorResponses: process.env.NODE_ENV !== 'production',
-  plugins: [
-    ApolloServerPluginLandingPageLocalDefault({ embed: true }),
-  ],
 });
 
-export default startServerAndCreateNextHandler(server, {
+const handler = startServerAndCreateNextHandler(server, {
+  // Attach the authenticated user to every request's context
   context: async (req) => {
     const user = getUserFromRequest(req);
     return { user };
   },
 });
 
-// Do NOT disable bodyParser — @as-integrations/next v3 needs Next.js to parse the body
-export const config = {
-  api: {
-    bodyParser: {
-      sizeLimit: '10mb',
-    },
-  },
-};
+export default handler;
