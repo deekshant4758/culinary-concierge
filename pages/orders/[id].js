@@ -32,7 +32,7 @@ export default function OrderDetail({ user, order, orderItems, paymentMethods, e
   const [selectedPayment, setSelectedPayment] = useState(order.paymentMethodId || '');
   const [loading, setLoading]   = useState(false);
   const [error, setError]       = useState('');
-  const [selectedCollaborator, setSelectedCollaborator] = useState(order.sharedWithUserId ? String(order.sharedWithUserId) : '');
+  const [selectedCollaborator, setSelectedCollaborator] = useState('');
   const [shareLoading, setShareLoading] = useState(false);
   const [shareError, setShareError] = useState('');
 
@@ -83,6 +83,7 @@ export default function OrderDetail({ user, order, orderItems, paymentMethods, e
         `,
         { id: order.id, userId: parseInt(selectedCollaborator, 10) }
       );
+      setSelectedCollaborator('');
       router.replace(router.asPath);
     } catch (err) {
       setShareError(err.message);
@@ -91,17 +92,17 @@ export default function OrderDetail({ user, order, orderItems, paymentMethods, e
     }
   };
 
-  const handleRemoveSharedUser = async () => {
+  const handleRemoveSharedUser = async (collaboratorId) => {
     setShareLoading(true);
     setShareError('');
     try {
       await gql(
         `
-          mutation RemoveShare($id: Int!) {
-            removeDraftShare(id: $id) { id }
+          mutation RemoveShare($id: Int!, $userId: Int!) {
+            removeCollaborator(id: $id, userId: $userId) { id }
           }
         `,
-        { id: order.id }
+        { id: order.id, userId: collaboratorId }
       );
       router.replace(router.asPath);
     } catch (err) {
@@ -226,8 +227,12 @@ export default function OrderDetail({ user, order, orderItems, paymentMethods, e
                   </div>
 
                   <div className="text-sm">
-                    <p className="text-on-surface-variant">Collaborator</p>
-                    <p className="font-medium">{order.sharedWithUserName || 'None invited yet'}</p>
+                    <p className="text-on-surface-variant">Collaborators</p>
+                    <p className="font-medium">
+                      {order.collaboratorNames && order.collaboratorNames.length > 0
+                        ? order.collaboratorNames.join(', ')
+                        : 'None invited yet'}
+                    </p>
                   </div>
 
                   {canManageShare && (
@@ -249,25 +254,35 @@ export default function OrderDetail({ user, order, orderItems, paymentMethods, e
                       <div className="flex gap-2">
                         <button
                           onClick={handleShareDraft}
-                          disabled={shareLoading}
+                          disabled={shareLoading || !selectedCollaborator}
                           className="btn-primary flex-1 text-sm disabled:opacity-60"
                         >
-                          {shareLoading ? 'Saving...' : order.sharedWithUserId ? 'Update Invite' : 'Invite User'}
+                          {shareLoading ? 'Adding...' : 'Add Collaborator'}
                         </button>
-                        {order.sharedWithUserId && (
-                          <button
-                            onClick={handleRemoveSharedUser}
-                            disabled={shareLoading}
-                            className="btn-secondary flex-1 text-sm disabled:opacity-60"
-                          >
-                            Remove
-                          </button>
-                        )}
                       </div>
+                      {order.collaborators?.length > 0 && (
+                        <div className="space-y-2 pt-2">
+                          {order.collaborators.map((collaborator) => (
+                            <div key={collaborator.id} className="flex items-center justify-between gap-3 rounded-xl border border-surface-container-high px-3 py-2 text-sm">
+                              <div>
+                                <p className="font-medium text-on-surface">{collaborator.name}</p>
+                                <p className="text-xs text-outline capitalize">{collaborator.role} · {collaborator.region}</p>
+                              </div>
+                              <button
+                                onClick={() => handleRemoveSharedUser(collaborator.id)}
+                                disabled={shareLoading}
+                                className="text-xs font-semibold text-red-600 hover:underline disabled:opacity-60"
+                              >
+                                Remove
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   )}
 
-                  {!canManageShare && order.sharedWithUserId === user.id && (
+                  {!canManageShare && canEditSharedCart && (
                     <p className="text-xs text-blue-700 bg-blue-50 border border-blue-100 rounded-lg p-3">
                       This draft was shared with you. Your changes in the restaurant cart will sync for both of you.
                     </p>
@@ -348,7 +363,7 @@ export async function getServerSideProps({ req, params }) {
     include: {
       restaurant: true,
       user: true,
-      sharedWithUser: true,
+      collaborators: { include: { user: true } },
       paymentMethod: true,
       items: { include: { menuItem: true } },
     },
@@ -358,7 +373,7 @@ export async function getServerSideProps({ req, params }) {
 
   const canViewOrder = user.role === 'admin'
     || order.userId === user.id
-    || order.sharedWithUserId === user.id
+    || order.collaborators?.some((c) => c.userId === user.id)
     || (user.role === 'manager' && order.region === user.region);
   if (!canViewOrder) return { redirect: { destination: '/orders', permanent: false } };
 
@@ -387,8 +402,7 @@ export async function getServerSideProps({ req, params }) {
         placedAt: order.placedAt?.toISOString() || null,
         restaurantName: order.restaurant.name,
         userName: order.user.name,
-        sharedWithUserId: order.sharedWithUserId,
-        sharedWithUserName: order.sharedWithUser?.name || null,
+        collaboratorNames: order.collaborators?.map((c) => c.user?.name).filter(Boolean) || [],
         paymentMethodId: order.paymentMethodId,
         paymentLabel: order.paymentMethod?.label || null,
         paymentLastFour: order.paymentMethod?.lastFour || null,
@@ -410,7 +424,9 @@ export async function getServerSideProps({ req, params }) {
         region: candidate.region,
       })),
       canManageShare: user.role === 'admin' || order.userId === user.id,
-      canEditSharedCart: user.role === 'admin' || order.userId === user.id || order.sharedWithUserId === user.id,
+      canEditSharedCart: user.role === 'admin'
+        || order.userId === user.id
+        || order.collaborators?.some((c) => c.userId === user.id),
     },
   };
 }

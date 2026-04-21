@@ -126,7 +126,12 @@ export async function getServerSideProps({ req }) {
 
   const orderWhere = user.role === 'admin' ? {}
     : user.role === 'manager' ? { region: user.region }
-    : { OR: [{ userId: user.id }, { sharedWithUserId: user.id }] };
+    : { 
+        OR: [
+          { userId: user.id },
+          { collaborators: { some: { userId: user.id } } }
+        ]
+      };
 
   const rWhere = user.role === 'admin' ? { isActive: true } : { isActive: true, region: user.region };
 

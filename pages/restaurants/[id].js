@@ -404,12 +404,12 @@ export async function getServerSideProps({ req, params }) {
     where: {
       restaurantId: restaurant.id,
       status: 'draft',
-      OR: [{ userId: user.id }, { sharedWithUserId: user.id }],
+      OR: [{ userId: user.id }, { collaborators: { some: { userId: user.id } } }],
     },
     orderBy: { createdAt: 'desc' },
     include: {
       user: true,
-      sharedWithUser: true,
+      collaborators: { include: { user: true } },
       items: {
         include: {
           menuItem: true,
@@ -472,7 +472,7 @@ export async function getServerSideProps({ req, params }) {
       draftOutdated,
       draftOutdatedReason,
       draftOwnerName: draftOrder?.user?.name ?? null,
-      draftSharedWithName: draftOrder?.sharedWithUser?.name ?? null,
+      draftCollaboratorNames: draftOrder?.collaborators?.map(c => c.user?.name) ?? [],
     },
   };
 }

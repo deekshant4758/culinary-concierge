@@ -110,12 +110,15 @@ async function seed() {
   // Sample draft order that uses shared collaborator fields from updated schema.
   await prisma.order.create({
     data: {
+      id: 17,
       userId: USER_IDS.memberIndiaA,
-      sharedWithUserId: USER_IDS.memberIndiaB,
       restaurantId: r1.id,
       region: r1.region,
       status: 'draft',
       totalAmount: 1543.5,
+      collaborators: {
+        create: [{ userId: USER_IDS.memberIndiaB }],
+      },
       items: {
         create: [
           {
@@ -138,6 +141,7 @@ async function seed() {
   // Sample placed order with payment method and placed timestamp.
   await prisma.order.create({
     data: {
+      id: 18,
       userId: USER_IDS.memberAmerica,
       restaurantId: r7.id,
       paymentMethodId: PAYMENT_METHOD_IDS.americaCard,
