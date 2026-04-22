@@ -83,7 +83,6 @@ export default function OrderDetail({ user, order, orderItems, paymentMethods, e
         `,
         { id: order.id, userId: parseInt(selectedCollaborator, 10) }
       );
-      setSelectedCollaborator('');
       router.replace(router.asPath);
     } catch (err) {
       setShareError(err.message);
@@ -92,7 +91,7 @@ export default function OrderDetail({ user, order, orderItems, paymentMethods, e
     }
   };
 
-  const handleRemoveSharedUser = async (collaboratorId) => {
+  const handleRemoveSharedUser = async () => {
     setShareLoading(true);
     setShareError('');
     try {
@@ -102,7 +101,7 @@ export default function OrderDetail({ user, order, orderItems, paymentMethods, e
             removeCollaborator(id: $id, userId: $userId) { id }
           }
         `,
-        { id: order.id, userId: collaboratorId }
+        { id: order.id, userId: parseInt(selectedCollaborator, 10) }
       );
       router.replace(router.asPath);
     } catch (err) {
@@ -229,9 +228,7 @@ export default function OrderDetail({ user, order, orderItems, paymentMethods, e
                   <div className="text-sm">
                     <p className="text-on-surface-variant">Collaborators</p>
                     <p className="font-medium">
-                      {order.collaboratorNames && order.collaboratorNames.length > 0
-                        ? order.collaboratorNames.join(', ')
-                        : 'None invited yet'}
+                      {order.collaboratorNames.length > 0 ? order.collaboratorNames.join(', ') : 'None invited yet'}
                     </p>
                   </div>
 
@@ -254,31 +251,21 @@ export default function OrderDetail({ user, order, orderItems, paymentMethods, e
                       <div className="flex gap-2">
                         <button
                           onClick={handleShareDraft}
-                          disabled={shareLoading || !selectedCollaborator}
+                          disabled={shareLoading}
                           className="btn-primary flex-1 text-sm disabled:opacity-60"
                         >
                           {shareLoading ? 'Adding...' : 'Add Collaborator'}
                         </button>
+                        {selectedCollaborator && order.collaboratorIds.includes(parseInt(selectedCollaborator, 10)) && (
+                          <button
+                            onClick={handleRemoveSharedUser}
+                            disabled={shareLoading}
+                            className="btn-secondary flex-1 text-sm disabled:opacity-60"
+                          >
+                            Remove
+                          </button>
+                        )}
                       </div>
-                      {order.collaborators?.length > 0 && (
-                        <div className="space-y-2 pt-2">
-                          {order.collaborators.map((collaborator) => (
-                            <div key={collaborator.id} className="flex items-center justify-between gap-3 rounded-xl border border-surface-container-high px-3 py-2 text-sm">
-                              <div>
-                                <p className="font-medium text-on-surface">{collaborator.name}</p>
-                                <p className="text-xs text-outline capitalize">{collaborator.role} · {collaborator.region}</p>
-                              </div>
-                              <button
-                                onClick={() => handleRemoveSharedUser(collaborator.id)}
-                                disabled={shareLoading}
-                                className="text-xs font-semibold text-red-600 hover:underline disabled:opacity-60"
-                              >
-                                Remove
-                              </button>
-                            </div>
-                          ))}
-                        </div>
-                      )}
                     </div>
                   )}
 
@@ -358,22 +345,35 @@ export async function getServerSideProps({ req, params }) {
   const user = getUserFromRequest(req);
   if (!user) return { redirect: { destination: '/login', permanent: false } };
 
+  const orderId = parseInt(params.id, 10);
+  if (Number.isNaN(orderId)) return { notFound: true };
+
   const order = await prisma.order.findUnique({
-    where: { id: parseInt(params.id) },
+    where: { id: orderId },
     include: {
-      restaurant: true,
-      user: true,
-      collaborators: { include: { user: true } },
-      paymentMethod: true,
-      items: { include: { menuItem: true } },
+      items: true,
+      collaborators: true,
     },
   });
 
   if (!order) return { notFound: true };
 
+  const collaboratorIds = order.collaborators.map((c) => c.userId);
+
+  const [restaurant, owner, paymentMethod, orderItemsWithMenu, collaboratorUsers] = await Promise.all([
+    prisma.restaurant.findUnique({ where: { id: order.restaurantId } }),
+    prisma.user.findUnique({ where: { id: order.userId } }),
+    order.paymentMethodId ? prisma.paymentMethod.findUnique({ where: { id: order.paymentMethodId } }) : Promise.resolve(null),
+    prisma.orderItem.findMany({
+      where: { orderId: order.id },
+      include: { menuItem: true },
+    }).catch(() => []),
+    collaboratorIds.length > 0 ? prisma.user.findMany({ where: { id: { in: collaboratorIds } } }) : Promise.resolve([]),
+  ]);
+
   const canViewOrder = user.role === 'admin'
     || order.userId === user.id
-    || order.collaborators?.some((c) => c.userId === user.id)
+    || collaboratorIds.includes(user.id)
     || (user.role === 'manager' && order.region === user.region);
   if (!canViewOrder) return { redirect: { destination: '/orders', permanent: false } };
 
@@ -387,8 +387,11 @@ export async function getServerSideProps({ req, params }) {
   });
   const subtotalAmount = order.items.reduce((sum, item) => sum + parseFloat(item.subtotal.toString()), 0);
 
-  const s = (v) => v instanceof Date ? v.toISOString()
-    : v?.constructor?.name === 'Decimal' ? parseFloat(v.toString()) : v;
+  const menuNameById = new Map(
+    orderItemsWithMenu
+      .filter((oi) => oi.menuItem)
+      .map((oi) => [oi.id, oi.menuItem.name])
+  );
 
   return {
     props: {
@@ -400,18 +403,19 @@ export async function getServerSideProps({ req, params }) {
         totalAmount: calculateOrderTotal(subtotalAmount),
         createdAt: order.createdAt.toISOString(),
         placedAt: order.placedAt?.toISOString() || null,
-        restaurantName: order.restaurant.name,
-        userName: order.user.name,
-        collaboratorNames: order.collaborators?.map((c) => c.user?.name).filter(Boolean) || [],
+        restaurantName: restaurant?.name || 'Unknown Restaurant',
+        userName: owner?.name || 'Unknown User',
+        collaboratorIds,
+        collaboratorNames: collaboratorUsers.map((u) => u.name),
         paymentMethodId: order.paymentMethodId,
-        paymentLabel: order.paymentMethod?.label || null,
-        paymentLastFour: order.paymentMethod?.lastFour || null,
+        paymentLabel: paymentMethod?.label || null,
+        paymentLastFour: paymentMethod?.lastFour || null,
       },
       orderItems: order.items.map(oi => ({
         id: oi.id, quantity: oi.quantity,
         unitPrice: parseFloat(oi.unitPrice.toString()),
         subtotal: parseFloat(oi.subtotal.toString()),
-        itemName: oi.menuItem.name,
+        itemName: menuNameById.get(oi.id) || 'Deleted menu item',
       })),
       paymentMethods: paymentMethods.map(pm => ({
         id: pm.id, label: pm.label, type: pm.type,
@@ -424,9 +428,7 @@ export async function getServerSideProps({ req, params }) {
         region: candidate.region,
       })),
       canManageShare: user.role === 'admin' || order.userId === user.id,
-      canEditSharedCart: user.role === 'admin'
-        || order.userId === user.id
-        || order.collaborators?.some((c) => c.userId === user.id),
+      canEditSharedCart: user.role === 'admin' || order.userId === user.id || collaboratorIds.includes(user.id),
     },
   };
 }

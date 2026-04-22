@@ -385,8 +385,13 @@ export async function getServerSideProps({ req, params }) {
   const user = getUserFromRequest(req);
   if (!user) return { redirect: { destination: '/login', permanent: false } };
 
+  const restaurantId = parseInt(params.id, 10);
+  if (Number.isNaN(restaurantId)) {
+    return { redirect: { destination: '/restaurants', permanent: false } };
+  }
+
   const restaurant = await prisma.restaurant.findFirst({
-    where: { id: parseInt(params.id, 10), isActive: true },
+    where: { id: restaurantId, isActive: true },
   });
   if (!restaurant) {
     return { redirect: { destination: '/restaurants', permanent: false } };
@@ -408,15 +413,19 @@ export async function getServerSideProps({ req, params }) {
     },
     orderBy: { createdAt: 'desc' },
     include: {
-      user: true,
-      collaborators: { include: { user: true } },
-      items: {
-        include: {
-          menuItem: true,
-        },
-      },
+      items: true,
+      collaborators: true,
     },
   });
+
+  const draftCollaboratorIds = draftOrder?.collaborators?.map((c) => c.userId) || [];
+
+  const [draftOwner, draftSharedWith] = await Promise.all([
+    draftOrder ? prisma.user.findUnique({ where: { id: draftOrder.userId } }).catch(() => null) : Promise.resolve(null),
+    draftCollaboratorIds.length > 0
+      ? prisma.user.findFirst({ where: { id: { in: draftCollaboratorIds } }, orderBy: { name: 'asc' } }).catch(() => null)
+      : Promise.resolve(null),
+  ]);
 
   const byMenuId = Object.fromEntries(allMenuItems.map((m) => [m.id, m]));
   const initialCart = {};
@@ -471,8 +480,8 @@ export async function getServerSideProps({ req, params }) {
       initialCart: draftOutdated ? {} : serialize(initialCart),
       draftOutdated,
       draftOutdatedReason,
-      draftOwnerName: draftOrder?.user?.name ?? null,
-      draftCollaboratorNames: draftOrder?.collaborators?.map(c => c.user?.name) ?? [],
+      draftOwnerName: draftOwner?.name ?? null,
+      draftSharedWithName: draftSharedWith?.name ?? null,
     },
   };
 }
