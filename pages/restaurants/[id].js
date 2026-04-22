@@ -405,25 +405,49 @@ export async function getServerSideProps({ req, params }) {
     orderBy: [{ category: 'asc' }, { name: 'asc' }],
   });
 
-  const draftOrder = await prisma.order.findFirst({
+  const ownerDraft = await prisma.order.findFirst({
     where: {
       restaurantId: restaurant.id,
       status: 'draft',
-      OR: [{ userId: user.id }, { collaborators: { some: { userId: user.id } } }],
+      userId: user.id,
     },
     orderBy: { createdAt: 'desc' },
-    include: {
-      items: true,
-      collaborators: true,
-    },
+    include: { items: true },
   });
 
-  const draftCollaboratorIds = draftOrder?.collaborators?.map((c) => c.userId) || [];
+  const collaboratorDraftLinks = await prisma.orderCollaborator.findMany({
+    where: {
+      userId: user.id,
+      order: {
+        restaurantId: restaurant.id,
+        status: 'draft',
+      },
+    },
+    include: {
+      order: { include: { items: true } },
+    },
+    orderBy: { createdAt: 'desc' },
+  });
+
+  const draftOrder = ownerDraft || collaboratorDraftLinks[0]?.order || null;
+  const draftOrderItems = draftOrder?.items || [];
+
+  const draftCollaboratorRows = draftOrder
+    ? await prisma.orderCollaborator.findMany({
+        where: { orderId: draftOrder.id },
+        include: {
+          user: {
+            select: { id: true, name: true },
+          },
+        },
+        orderBy: { createdAt: 'asc' },
+      })
+    : [];
 
   const [draftOwner, draftSharedWith] = await Promise.all([
     draftOrder ? prisma.user.findUnique({ where: { id: draftOrder.userId } }).catch(() => null) : Promise.resolve(null),
-    draftCollaboratorIds.length > 0
-      ? prisma.user.findFirst({ where: { id: { in: draftCollaboratorIds } }, orderBy: { name: 'asc' } }).catch(() => null)
+    draftCollaboratorRows.length > 0
+      ? prisma.user.findUnique({ where: { id: draftCollaboratorRows[0].userId } }).catch(() => null)
       : Promise.resolve(null),
   ]);
 
@@ -433,7 +457,7 @@ export async function getServerSideProps({ req, params }) {
   let draftOutdatedReason = '';
 
   if (draftOrder) {
-    for (const oi of draftOrder.items) {
+    for (const oi of draftOrderItems) {
       const menuItem = byMenuId[oi.menuItemId];
       const currentPrice = menuItem ? parseFloat(menuItem.price.toString()) : null;
       const draftPrice = parseFloat(oi.unitPrice.toString());

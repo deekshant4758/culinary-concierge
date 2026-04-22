@@ -352,13 +352,20 @@ export async function getServerSideProps({ req, params }) {
     where: { id: orderId },
     include: {
       items: true,
-      collaborators: true,
     },
   });
 
   if (!order) return { notFound: true };
 
-  const collaboratorIds = order.collaborators.map((c) => c.userId);
+  const collaboratorRows = await prisma.orderCollaborator.findMany({
+    where: { orderId: order.id },
+    include: {
+      user: {
+        select: { id: true, name: true },
+      },
+    },
+  });
+  const collaboratorIds = collaboratorRows.map((row) => row.userId);
 
   const [restaurant, owner, paymentMethod, orderItemsWithMenu, collaboratorUsers] = await Promise.all([
     prisma.restaurant.findUnique({ where: { id: order.restaurantId } }),
@@ -406,7 +413,7 @@ export async function getServerSideProps({ req, params }) {
         restaurantName: restaurant?.name || 'Unknown Restaurant',
         userName: owner?.name || 'Unknown User',
         collaboratorIds,
-        collaboratorNames: collaboratorUsers.map((u) => u.name),
+        collaboratorNames: collaboratorRows.map((row) => row.user?.name).filter(Boolean),
         paymentMethodId: order.paymentMethodId,
         paymentLabel: paymentMethod?.label || null,
         paymentLastFour: paymentMethod?.lastFour || null,
